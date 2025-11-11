@@ -1,5 +1,6 @@
 # Docs: https://github.com/Azure/webapps-deploy
-# Purpose: Build and deploy a Node.js (frontend) app to Azure Web App
+# Purpose: Build and deploy a Node.js (frontend) app to Azure Web App - MkToDoApp
+# Works with single federated credential (branch-based)
 
 name: Build and Deploy Node.js App to Azure Web App - MkToDoApp
 
@@ -11,10 +12,9 @@ on:
         required: false
         default: 'main'
       environment:
-        description: 'Target environment (production or staging)'
+        description: 'Target environment (production/staging)'
         required: false
         default: 'production'
-
 
 jobs:
   build:
@@ -59,8 +59,8 @@ jobs:
           name: node-build
           path: .
 
-      - name: List downloaded files (debug)
-        run: ls -la
+      - name: Verify files
+        run: ls -la && ls -la dist || echo "No dist folder"
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -69,7 +69,6 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # ✅ Deploy only the build contents directly
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
@@ -78,3 +77,8 @@ jobs:
           slot-name: 'Production'
           package: .
 
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "App URL: https://mktodoapp.azurewebsites.net"
