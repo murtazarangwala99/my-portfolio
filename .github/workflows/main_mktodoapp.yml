@@ -4,10 +4,17 @@
 name: Build and Deploy Node.js App to Azure Web App - MkToDoApp
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy (default: main)'
+        required: false
+        default: 'main'
+      environment:
+        description: 'Target environment (production or staging)'
+        required: false
+        default: 'production'
+
 
 jobs:
   build:
