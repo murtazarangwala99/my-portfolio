@@ -31,7 +31,6 @@ jobs:
       - name: Build project
         run: npm run build --if-present
 
-      # ✅ Upload ONLY the files inside dist (no nested folder)
       - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
@@ -53,16 +52,15 @@ jobs:
           name: node-build
           path: .
 
-      # ✅ Ensure all files are placed in root (no extra 'dist' folder)
       - name: List downloaded files (debug)
         run: ls -la
 
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_89548B53D1E24DDFAB55EED5C04786CE }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_75E0E493D3F64D429DB96C7F31C1AD39 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_36EEE81C468A4B01BC61370F9708C8E4 }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       # ✅ Deploy only the build contents directly
       - name: Deploy to Azure Web App
@@ -72,3 +70,4 @@ jobs:
           app-name: 'MkToDoApp'
           slot-name: 'Production'
           package: .
+
