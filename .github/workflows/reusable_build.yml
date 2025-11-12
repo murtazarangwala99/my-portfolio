@@ -9,7 +9,6 @@ on:
       artifact-name:
         required: true
         type: string
-    secrets: inherit
 
 jobs:
   build:
