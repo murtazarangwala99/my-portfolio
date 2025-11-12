@@ -76,7 +76,9 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    concurrency: production-deploy
+    concurrency: 
+      group: production-deploy
+      cancel-in-progress: true
     if: github.ref == 'refs/heads/main'
 
     steps:
