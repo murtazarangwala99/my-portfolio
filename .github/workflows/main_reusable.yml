@@ -1,0 +1,74 @@
+name: Build and Deploy Node.js App (Matrix) - MkToDoApp
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy (default: main)'
+        required: false
+        default: 'main'
+      target:
+        description: 'Deployment target (production/staging)'
+        required: false
+        default: 'production'
+
+jobs:
+  # --------------------------------------------------------
+  # 🏗️ CALL REUSABLE BUILD WORKFLOW
+  # --------------------------------------------------------
+  build:
+    name: Build App (Reusable)
+    uses: ./.github/workflows/reusable_build.yml
+    with:
+      node-version: '24.x'
+      artifact-name: 'node-build-24.x'
+
+  # --------------------------------------------------------
+  # 🚀 DEPLOY JOB
+  # --------------------------------------------------------
+  deploy:
+    name: Deploy to Azure Web App
+    runs-on: azure-github-action-runner
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+    concurrency: ${{ github.event.inputs.target }}-deploy
+    if: github.ref == 'refs/heads/main'
+
+    environment:
+      name: ${{ github.event.inputs.target }}
+      url: https://mktodoapp.azurewebsites.net
+
+    steps:
+      - name: Download build artifact (Node 24.x)
+        uses: actions/download-artifact@v4
+        with:
+          name: node-build-24.x
+          path: .
+
+      - name: Verify build files
+        run: ls -la && ls -la dist || echo "No dist folder found"
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'MkToDoApp'
+          slot-name: ${{ github.event.inputs.target == 'staging' && 'Staging' || 'Production' }}
+          package: .
+
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "Target: ${{ github.event.inputs.target }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Run ID: ${{ github.run_number }}"
+          echo "App URL: https://mktodoapp.azurewebsites.net"
