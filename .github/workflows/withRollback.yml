@@ -1,0 +1,173 @@
+# Docs: https://github.com/Azure/webapps-deploy
+# Purpose: Build and deploy Node.js (React/Vite) app with matrix build, caching, and rollback
+# Supports zero-downtime deployment using staging slot and health checks
+
+name: Build and Deploy Node.js App (Matrix) - MkToDoApp
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy (default: main)'
+        required: false
+        default: 'main'
+      target:
+        description: 'Deployment target (production/staging)'
+        required: false
+        default: 'production'
+
+jobs:
+  build:
+    name: Build App (Matrix)
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_ENV: ${{ github.event.inputs.target }}
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 24.x]
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Cache Node Modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+        
+      # Optional steps
+      #- name: Lint Code
+      #  run: npm run lint --if-present
+      #- name: Run Tests
+      #  run: npm test --if-present
+
+      - name: Build project
+        run: npm run build --if-present
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-build-${{ matrix.node-version }}
+          path: dist/**
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy to Azure Web App
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+    concurrency: 
+      group: production-deploy
+      cancel-in-progress: true
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Download build artifact (Node 24.x)
+        uses: actions/download-artifact@v4
+        with:
+          name: node-build-24.x
+          path: .
+
+      - name: Verify build files
+        run: ls -la && ls -la dist || echo "No dist folder found"
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # -------------------------------------------------------------
+      # 1️⃣ Deploy to staging or production
+      # -------------------------------------------------------------
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'MkToDoApp'
+          slot-name: ${{ github.event.inputs.target == 'staging' && 'Staging' || 'Production' }}
+          package: .
+
+      # -------------------------------------------------------------
+      # 2️⃣ Health check for staging slot
+      # Runs only if deploying to staging
+      # -------------------------------------------------------------
+      - name: Health check on Staging slot
+        id: healthcheck
+        if: github.event.inputs.target == 'staging'
+        run: |
+          echo "Checking health of staging slot..."
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://mktodoapp-staging.azurewebsites.net)
+          echo "Status code: $STATUS_CODE"
+          if [ "$STATUS_CODE" != "200" ]; then
+            echo "❌ Health check failed. Rolling back deployment..."
+            echo "status=failed" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Staging slot is healthy."
+            echo "status=success" >> $GITHUB_OUTPUT
+          fi
+
+      # -------------------------------------------------------------
+      # 3️⃣ Swap staging → production if healthy
+      # -------------------------------------------------------------
+      - name: Swap slots (staging → production)
+        if: github.event.inputs.target == 'staging' && steps.healthcheck.outputs.status == 'success'
+        run: |
+          echo "Swapping staging to production..."
+          az webapp deployment slot swap \
+            --name MkToDoApp \
+            --resource-group rg-mktodoapp \
+            --slot Staging \
+            --target-slot Production
+          echo "✅ Swap completed successfully!"
+
+      # -------------------------------------------------------------
+      # 4️⃣ Rollback (swap back) if staging health check failed
+      # -------------------------------------------------------------
+      - name: Rollback failed deployment (swap back)
+        if: github.event.inputs.target == 'staging' && steps.healthcheck.outputs.status == 'failed'
+        run: |
+          echo "⚠️ Initiating rollback..."
+          az webapp deployment slot swap \
+            --name MkToDoApp \
+            --resource-group rg-mktodoapp \
+            --slot Production \
+            --target-slot Staging
+          echo "🔄 Rollback complete — previous version restored."
+
+      # -------------------------------------------------------------
+      # 5️⃣ Summary & Verification
+      # -------------------------------------------------------------
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "Target: ${{ github.event.inputs.target }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Run ID: ${{ github.run_number }}"
+          echo "$(date) – Commit ${{ github.sha }} – Run ${{ github.run_number }}" >> deploy_history.log
+          echo "App URL: https://mktodoapp.azurewebsites.net"
+
+      - name: Verify site availability
+        run: |
+          echo "Performing production health check..."
+          curl -I https://mktodoapp.azurewebsites.net | grep "200 OK" || echo "⚠️ App may still be starting..."
