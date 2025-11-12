@@ -13,10 +13,12 @@ on:
 
 jobs:
   build:
-    runs-on: azure-github-action-runner
+    runs-on: ubuntu-latest
+    # Instead of placing the expression inside a matrix array, use the input directly.
     strategy:
       matrix:
-        node-version: [${{ inputs.node-version }}]
+        node-version: ["${{ inputs.node-version }}"]
+
     permissions:
       contents: read
 
